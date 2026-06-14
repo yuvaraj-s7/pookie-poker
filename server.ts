@@ -27,7 +27,7 @@ type Ack<T = unknown> = (response: { ok: true; data: T } | { ok: false; error: s
 
 const rooms = new Map<string, Room>();
 const dev = process.env.NODE_ENV !== "production";
-const hostname = process.env.HOSTNAME ?? "0.0.0.0";
+const hostname = "0.0.0.0";
 const port = Number(process.env.PORT ?? 3000);
 
 const app = next({ dev, hostname, port });
