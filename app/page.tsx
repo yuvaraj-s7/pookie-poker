@@ -9,25 +9,31 @@ import {
   Eye,
   Loader2,
   LogOut,
+  Moon,
+  QrCode,
   RotateCcw,
   Save,
   Sparkles,
+  Sun,
   Users,
+  UserX,
   Wifi,
   WifiOff,
   X
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { io, type Socket } from "socket.io-client";
 import { CARD_VALUES, DEFAULT_STORY, numericCardValue, type CardValue, type RoomView, type Story } from "../lib/poker";
 
 type Mode = "create" | "join";
-type BusyAction = "create" | "join" | "vote" | "reveal" | "reset" | "story" | "leave" | null;
+type BusyAction = "create" | "join" | "vote" | "reveal" | "reset" | "story" | "leave" | "kick" | null;
 type Ack<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const storageKeys = {
   clientId: "scrum-poker-client-id",
-  name: "scrum-poker-name"
+  name: "scrum-poker-name",
+  theme: "scrum-poker-theme"
 };
 
 function getOrCreateClientId() {
@@ -97,16 +103,22 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [editingStory, setEditingStory] = useState(false);
   const [storyDraft, setStoryDraft] = useState<Story>(DEFAULT_STORY);
+  const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
     const id = getOrCreateClientId();
     const savedName = window.localStorage.getItem(storageKeys.name) ?? "";
     const inviteRoom = normalizeRoomInput(new URLSearchParams(window.location.search).get("room") ?? "");
+    const savedTheme = window.localStorage.getItem(storageKeys.theme);
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+    const useDarkMode = savedTheme ? savedTheme === "dark" : prefersDark;
 
     setClientId(id);
     setName(savedName);
     setRoomCode(inviteRoom);
     setMode(inviteRoom ? "join" : "create");
+    setDarkMode(useDarkMode);
+    document.documentElement.classList.toggle("dark", useDarkMode);
     clientIdRef.current = id;
     nameRef.current = savedName;
 
@@ -142,6 +154,12 @@ export default function Home() {
       setMessage("");
     });
 
+    socket.on("room:kicked", () => {
+      setRoom(null);
+      setMode("join");
+      setMessage("You were removed from the room by the moderator.");
+    });
+
     return () => {
       socket.disconnect();
     };
@@ -172,6 +190,14 @@ export default function Home() {
   const isModerator = Boolean(currentParticipant?.isModerator);
   const onlineCount = room?.participants.filter((participant) => participant.online).length ?? 0;
   const everyoneVoted = room ? room.participants.length > 0 && room.participants.every((participant) => participant.hasVoted) : false;
+  const inviteUrl = typeof window !== "undefined" && room ? `${window.location.origin}?room=${room.code}` : "";
+
+  function toggleTheme() {
+    const nextDarkMode = !darkMode;
+    setDarkMode(nextDarkMode);
+    document.documentElement.classList.toggle("dark", nextDarkMode);
+    window.localStorage.setItem(storageKeys.theme, nextDarkMode ? "dark" : "light");
+  }
 
   function emitRoomEvent<TPayload extends object>(
     event: string,
@@ -282,7 +308,6 @@ export default function Home() {
       return;
     }
 
-    const inviteUrl = `${window.location.origin}?room=${room.code}`;
     try {
       const copied = await copyText(inviteUrl);
       setMessage(copied ? "Invite link copied." : `Invite link: ${inviteUrl}`);
@@ -291,9 +316,31 @@ export default function Home() {
     }
   }
 
+  function kickParticipant(targetId: string) {
+    if (!room) {
+      return;
+    }
+
+    emitRoomEvent("participant:kick", { roomCode: room.code, clientId, targetId }, "kick", () => {
+      setMessage("Participant removed.");
+    });
+  }
+
+  const themeButton = (
+    <button
+      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
+      onClick={toggleTheme}
+      title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+      type="button"
+    >
+      {darkMode ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+    </button>
+  );
+
   if (!room) {
     return (
       <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+        <div className="fixed right-4 top-4 z-20">{themeButton}</div>
         <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center">
           <div className="grid w-full gap-8 lg:grid-cols-[minmax(0,1fr)_430px] lg:items-center">
             <section className="max-w-2xl">
@@ -412,6 +459,7 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {themeButton}
             {isModerator ? (
               <>
                 <button
@@ -540,6 +588,36 @@ export default function Home() {
         </div>
 
         <aside className="space-y-3">
+          <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-card">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-zinc-500">Invite</p>
+                <h2 className="text-xl font-semibold text-zinc-950">Scan to join</h2>
+              </div>
+              <QrCode aria-hidden="true" className="text-teal-700" size={22} />
+            </div>
+            <div className="mx-auto flex max-w-52 justify-center rounded-lg border border-zinc-200 bg-white p-3">
+              {inviteUrl ? (
+                <QRCodeSVG
+                  bgColor="#ffffff"
+                  fgColor="#18181b"
+                  level="M"
+                  marginSize={2}
+                  size={176}
+                  value={inviteUrl}
+                />
+              ) : null}
+            </div>
+            <button
+              className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
+              onClick={copyInviteLink}
+              type="button"
+            >
+              <Copy aria-hidden="true" size={16} />
+              Copy Invite Link
+            </button>
+          </section>
+
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-zinc-500">Participants</p>
@@ -569,7 +647,20 @@ export default function Home() {
                       {participant.online ? "Online" : "Offline"}
                     </p>
                   </div>
-                  <VoteStatus participant={participant} revealed={room.revealed} />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <VoteStatus participant={participant} revealed={room.revealed} />
+                    {isModerator && !participant.isModerator ? (
+                      <button
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={busy === "kick"}
+                        onClick={() => kickParticipant(participant.id)}
+                        title={`Kick ${participant.name}`}
+                        type="button"
+                      >
+                        <UserX aria-hidden="true" size={15} />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3">

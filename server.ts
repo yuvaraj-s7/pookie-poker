@@ -140,6 +140,41 @@ function leaveRoom(io: Server, socketId: string, roomCode: string, participantId
   emitRoomUpdate(io, room);
 }
 
+function removeParticipant(io: Server, room: Room, participantId: string, reason: "left" | "kicked") {
+  const participant = room.participants.get(participantId);
+
+  if (!participant) {
+    return;
+  }
+
+  room.participants.delete(participantId);
+  room.votes.delete(participantId);
+
+  if (participant.socketId) {
+    const participantSocket = io.sockets.sockets.get(participant.socketId);
+    participantSocket?.leave(room.code);
+    if (reason === "kicked") {
+      participantSocket?.emit("room:kicked", { roomCode: room.code });
+    }
+    if (participantSocket) {
+      participantSocket.data.roomCode = null;
+      participantSocket.data.participantId = null;
+    }
+  }
+
+  if (room.participants.size === 0) {
+    rooms.delete(room.code);
+    return;
+  }
+
+  if (room.moderatorId === participantId) {
+    room.moderatorId = nextModerator(room) ?? Array.from(room.participants.keys())[0];
+  }
+
+  io.to(room.code).emit("user:disconnected", { participantId });
+  emitRoomUpdate(io, room);
+}
+
 await app.prepare();
 
 const expressApp = express();
@@ -223,6 +258,41 @@ io.on("connection", (socket) => {
     socket.leave(roomCode);
     socket.data.roomCode = null;
     socket.data.participantId = null;
+  });
+
+  socket.on("participant:kick", (payload: { roomCode?: string; clientId?: string; targetId?: string }, ack?: Ack<RoomView>) => {
+    const roomCode = normalizeRoomCode(payload.roomCode ?? "");
+    const moderatorId = payload.clientId?.trim();
+    const targetId = payload.targetId?.trim();
+    const room = rooms.get(roomCode);
+
+    if (!room || !moderatorId || !targetId) {
+      ack?.({ ok: false, error: "Room session not found." });
+      return;
+    }
+
+    if (room.moderatorId !== moderatorId) {
+      ack?.({ ok: false, error: "Only the moderator can kick participants." });
+      return;
+    }
+
+    if (moderatorId === targetId) {
+      ack?.({ ok: false, error: "You cannot kick yourself." });
+      return;
+    }
+
+    if (!room.participants.has(targetId)) {
+      ack?.({ ok: false, error: "Participant not found." });
+      return;
+    }
+
+    removeParticipant(io, room, targetId, "kicked");
+    if (rooms.has(roomCode)) {
+      ack?.({ ok: true, data: serializeRoom(room, moderatorId) });
+      emitRoomUpdate(io, room);
+    } else {
+      ack?.({ ok: false, error: "Room closed." });
+    }
   });
 
   socket.on("vote:select", (payload: { roomCode?: string; clientId?: string; value?: unknown }, ack?: Ack<RoomView>) => {
