@@ -14,6 +14,9 @@ Teams can create rooms, join with a room code, vote privately, reveal estimates 
 - Consensus detection when all numeric votes match
 - Participant list with online, voted, waiting, and revealed states
 - Invite link copy button with browser fallback
+- QR code invite for fast mobile joining
+- Dark mode with saved theme preference
+- Moderator participant kick action
 - Responsive layout for desktop, tablet, and mobile
 - In-memory room/session storage
 
@@ -130,6 +133,20 @@ npm start
 3. Enter your name.
 4. Enter the room code.
 5. Click **Join Room**.
+
+Participants can also scan the room QR code from another device to open the invite link directly.
+
+### Dark Mode
+
+Click the sun/moon icon to switch between light and dark mode. The preference is saved in the browser.
+
+### Kick a Participant
+
+Only the moderator can remove participants.
+
+1. Open the participant list.
+2. Click the remove icon next to a non-moderator participant.
+3. The participant is removed from the room and returned to the join screen.
 
 ### Vote
 
@@ -364,6 +381,11 @@ Room events:
 - `room:create`
 - `room:join`
 - `room:leave`
+- `room:kicked`
+
+Participant events:
+
+- `participant:kick`
 
 Voting events:
 
@@ -448,8 +470,6 @@ npm start
 - Add persistent rooms with Redis or Postgres
 - Add room expiration
 - Add moderator transfer
-- Add participant kick
 - Add reveal countdown
 - Add confetti on consensus
-- Add dark mode
 - Add deployment-ready Vercel architecture with hosted realtime
